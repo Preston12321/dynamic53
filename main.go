@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"sync"
 	"time"
 
@@ -16,16 +17,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 const ADDRESS_API_URL = "https://ipinfo.io/ip"
 
 func main() {
 	configPath := flag.String("config", "", "File path of the config")
+	dryRun := flag.Bool("dryrun", false, "Don't send any API requests to AWS")
+	logLevel := flag.String("loglevel", "info", "Logging level")
 	flag.Parse()
 
-	zerolog.DurationFieldUnit = time.Second
-	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
+	// Use the global default logger to report if we're unable to parse the
+	// user-supplied log level string
+	level, err := zerolog.ParseLevel(*logLevel)
+	if err != nil {
+		log.Fatal().Err(fmt.Errorf("unable to parse log level string: %w", err)).Send()
+	}
+
+	logger := zerolog.New(os.Stdout).With().Timestamp().Logger().Level(level)
 
 	cfg, err := ReadConfig(*configPath)
 	if err != nil {
@@ -38,14 +48,30 @@ func main() {
 	}
 
 	ctx := logger.WithContext(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 
 	awsCfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		logger.Fatal().Err(fmt.Errorf("cannot load AWS configuration: %w", err)).Send()
 	}
 
-	daemon := NewDaemon(cfg, route53.NewFromConfig(awsCfg))
-	daemon.Start(ctx)
+	// Request SIGINT signals be sent to a channel for handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+
+	daemon := NewDaemon(cfg, route53.NewFromConfig(awsCfg), *dryRun)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		daemon.Start(ctx)
+		wg.Done()
+	}()
+
+	// Stop the running daemon if SIGINT is sent
+	<-sigChan
+	cancel()
+	wg.Wait()
 }
 
 // GetPublicIPv4 attempts to determine the current public IPv4 address of the
@@ -85,12 +111,14 @@ func GetPublicIPv4(ctx context.Context) (net.IP, error) {
 
 type Daemon struct {
 	Config *Config
+	DryRun bool
 	client *route53.Client
 }
 
-func NewDaemon(config *Config, route53Client *route53.Client) *Daemon {
+func NewDaemon(config *Config, route53Client *route53.Client, dryRun bool) *Daemon {
 	return &Daemon{
 		Config: config,
+		DryRun: dryRun,
 		client: route53Client,
 	}
 }
@@ -169,6 +197,10 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 	logger := zerolog.Ctx(ctx)
 	logger.Debug().Str("zone id", zone.Id).Str("zone name", zone.Name).Msg("Updating records in zone")
 
+	if d.DryRun {
+		return nil
+	}
+
 	zoneId := zone.Id
 
 	// Check if hosted zone exists and get its ID if we don't already have it
@@ -233,6 +265,7 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 		return fmt.Errorf("error waiting for resource record change to propagate: %w", err)
 	}
 
+	logger.Info().Str("zone id", zone.Id).Str("zone name", zone.Name).Msg("Successfully updated Route 53 hosted zone")
 	return nil
 }
 
