@@ -94,6 +94,10 @@ func ValidateConfig(cfg *Config) error {
 			return fmt.Errorf("invalid zone: must specify at least one record")
 		}
 
+		if len(zone.Records) > 1000 {
+			return fmt.Errorf("invalid zone: managing more than 1000 records in a zone is not supported")
+		}
+
 		for _, record := range zone.Records {
 			if record == "" {
 				return fmt.Errorf("invalid record: must not be an empty string")

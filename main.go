@@ -5,11 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"time"
 
@@ -226,12 +228,12 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 			return fmt.Errorf("cannot find hosted zone by name '%s'", zone.Name)
 		}
 
-		zoneId = *listOutput.HostedZones[0].Id
+		zoneId = strings.TrimPrefix(*listOutput.HostedZones[0].Id, "/hostedzone/")
+		logger.Debug().Str("zone id", zoneId).Str("zone name", zone.Name).Msg("Retrieved ID for zone")
 	}
 
-	// TODO: Split these into meta-batches if there are more than 1000 RRs
-	// TODO: Test to see how leaving TTL and other options blank affects them
 	// Create a batch change to update resource records
+	ttl := int64(d.Config.Polling.Interval.Seconds())
 	value := ipv4.String()
 	changes := make([]types.Change, 0, len(zone.Records))
 	for _, record := range zone.Records {
@@ -240,6 +242,7 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 			ResourceRecordSet: &types.ResourceRecordSet{
 				Name:            &record,
 				Type:            types.RRTypeA,
+				TTL:             &ttl,
 				ResourceRecords: []types.ResourceRecord{{Value: &value}},
 			},
 		}
@@ -256,16 +259,18 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 		return fmt.Errorf("failed to update resource records: %w", err)
 	}
 
+	changeId := strings.TrimPrefix(*changeOutput.ChangeInfo.Id, "/change/")
+
 	// The docs say this generally happens within 60 seconds, so let's go 90
 	timeoutCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
-	err = d.waitForRRChange(timeoutCtx, changeOutput.ChangeInfo.Id, 5)
+	err = d.waitForRRChange(timeoutCtx, &changeId, 5)
 	cancel()
 
 	if err != nil {
 		return fmt.Errorf("error waiting for resource record change to propagate: %w", err)
 	}
 
-	logger.Info().Str("zone id", zone.Id).Str("zone name", zone.Name).Msg("Successfully updated Route 53 hosted zone")
+	logger.Info().Str("zone id", zoneId).Str("zone name", zone.Name).Msg("Successfully updated Route 53 hosted zone")
 	return nil
 }
 
@@ -292,7 +297,7 @@ func (d *Daemon) waitForRRChange(ctx context.Context, changeId *string, backoffL
 			return nil
 		}
 
-		sleep := time.Duration(i^2) * time.Second
+		sleep := time.Duration(math.Pow(float64(i), 2)) * time.Second
 
 		logger.Debug().Str("change id", *changeId).Stringer("sleep duration", sleep).Msg("Going to sleep")
 		time.Sleep(sleep)
