@@ -1,0 +1,52 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowListingZones",
+            "Effect": "Allow",
+            "Action": "route53:ListHostedZonesByName",
+            "Resource": "*"
+        },
+        {
+            "Sid": "AllowGettingZonesAndChanges",
+            "Effect": "Allow",
+            "Action": [
+                "route53:GetChange",
+                "route53:GetHostedZone"
+            ],
+            "Resource": [
+{{- range . }}
+                "arn:aws:route53:::hostedzone/{{ .Id }}",
+{{- end }}
+                "arn:aws:route53:::change/*"
+            ]
+        },
+{{- range $index, $zone := . }}
+        {
+            "Sid": "AllowEditingRecords{{ $index }}",
+            "Effect": "Allow",
+            "Action": [
+                "route53:ChangeResourceRecordSets"
+            ],
+            "Resource": [
+                "arn:aws:route53:::hostedzone/{{ $zone.Id }}"
+            ],
+            "Condition": {
+                "ForAllValues:StringEquals": {
+                    "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
+                        "{{ index $zone.Records 0 }}"{{ range slice $zone.Records 1 }},
+                        "{{ . }}"{{ end }}
+                    ],
+                    "route53:ChangeResourceRecordSetsRecordTypes": [
+                        "A"
+                    ],
+                    "route53:ChangeResourceRecordSetsActions": [
+                        "CREATE",
+                        "UPSERT"
+                    ]
+                }
+            }
+        }
+{{- end }}
+    ]
+}

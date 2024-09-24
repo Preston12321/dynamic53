@@ -68,7 +68,7 @@ func ReadConfig(configPath string) (*Config, error) {
 	return &cfg, nil
 }
 
-func ValidateConfig(cfg *Config) error {
+func ValidateConfig(cfg *Config, requireZoneId bool) error {
 	if cfg.Polling.Interval <= 0 {
 		return fmt.Errorf("invalid polling config: interval must be positive and non-zero")
 	}
@@ -88,6 +88,10 @@ func ValidateConfig(cfg *Config) error {
 	for _, zone := range cfg.Zones {
 		if zone.Id == "" && zone.Name == "" {
 			return fmt.Errorf("invalid zone: missing id or name")
+		}
+
+		if requireZoneId && zone.Id == "" {
+			return fmt.Errorf("invalid zone: missing id")
 		}
 
 		if len(zone.Records) == 0 {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -26,6 +28,7 @@ const ADDRESS_API_URL = "https://ipinfo.io/ip"
 
 func main() {
 	configPath := flag.String("config", "", "File path of the config")
+	genPolicy := flag.Bool("genpolicy", false, "Generate an AWS identity-based IAM policy for dynamic53 using the given config")
 	dryRun := flag.Bool("dryrun", false, "Don't send any API requests to AWS")
 	logLevel := flag.String("loglevel", "info", "Logging level")
 	flag.Parse()
@@ -44,9 +47,19 @@ func main() {
 		logger.Fatal().Err(fmt.Errorf("cannot read configuration: %w", err)).Send()
 	}
 
-	err = ValidateConfig(cfg)
+	err = ValidateConfig(cfg, *genPolicy)
 	if err != nil {
 		logger.Fatal().Err(fmt.Errorf("invalid configuration: %w", err)).Send()
+	}
+
+	if *genPolicy {
+		policy, err := GenerateIAMPolicy(cfg)
+		if err != nil {
+			logger.Fatal().Err(fmt.Errorf("invalid configuration: %w", err)).Send()
+		}
+
+		fmt.Println(policy)
+		return
 	}
 
 	ctx := logger.WithContext(context.Background())
@@ -74,6 +87,21 @@ func main() {
 	<-sigChan
 	cancel()
 	wg.Wait()
+}
+
+func GenerateIAMPolicy(cfg *Config) (string, error) {
+	tmpl, err := template.New("iam-policy.tmpl").ParseFiles("iam-policy.tmpl")
+	if err != nil {
+		return "", fmt.Errorf("unable to parse template file: %w", err)
+	}
+
+	var buffer bytes.Buffer
+	err = tmpl.Execute(&buffer, cfg.Zones)
+	if err != nil {
+		return "", fmt.Errorf("unable to execute template: %w", err)
+	}
+
+	return buffer.String(), nil
 }
 
 // GetPublicIPv4 attempts to determine the current public IPv4 address of the
