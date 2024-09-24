@@ -5,6 +5,7 @@ go 1.23.1
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.27.36
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.44.0
+	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/rs/zerolog v1.33.0
 	gopkg.in/yaml.v3 v3.0.1
 )
