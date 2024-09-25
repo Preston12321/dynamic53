@@ -1,7 +1,7 @@
 # dynamic53 - Dynamic DNS for AWS Route 53
 
 A DNS update client that runs as a daemon and outputs structured logs. Comes
-with a tool to generative a restrictive identity-based IAM policy based on its
+with a tool to generate a restrictive identity-based IAM policy based on its
 configuration.
 
 ## Installation
@@ -9,13 +9,13 @@ configuration.
 Install the dynamic53 IAM policy generator:
 
 ```
-go install github.com/Preston12321/dynamic53/cmd/d53policy
+go install github.com/Preston12321/dynamic53/cmd/d53policy@latest
 ```
 
 Install the dynamic53 daemon:
 
 ```
-go install github.com/Preston12321/dynamic53/cmd/dynamic53
+go install github.com/Preston12321/dynamic53/cmd/dynamic53@latest
 ```
 
 ## Configuration
