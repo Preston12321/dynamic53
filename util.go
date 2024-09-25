@@ -55,13 +55,13 @@ func GetPublicIPv4(ctx context.Context) (net.IP, error) {
 func GenerateIAMPolicy(cfg DaemonConfig) (string, error) {
 	tmpl, err := template.New("iam-policy").Parse(IAM_POLICY_TEMPLATE)
 	if err != nil {
-		return "", fmt.Errorf("unable to parse template file: %w", err)
+		return "", fmt.Errorf("unable to parse policy template: %w", err)
 	}
 
 	var buffer bytes.Buffer
 	err = tmpl.Execute(&buffer, cfg.Zones)
 	if err != nil {
-		return "", fmt.Errorf("unable to execute template: %w", err)
+		return "", fmt.Errorf("unable to template policy json: %w", err)
 	}
 
 	return buffer.String(), nil

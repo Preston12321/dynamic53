@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -18,9 +19,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	errs := []error{}
+	for _, zone := range cfg.Zones {
+		if zone.Id == "" {
+			errs = append(errs, fmt.Errorf("missing ID on zone '%s'", zone.Name))
+		}
+	}
+	if err = errors.Join(errs...); err != nil {
+		fmt.Printf("all zones must have an ID to generate an IAM policy: %s\n", err.Error())
+		os.Exit(1)
+	}
+
 	policy, err := dynamic53.GenerateIAMPolicy(*cfg)
 	if err != nil {
-		fmt.Printf("invalid configuration: %s\n", err.Error())
+		fmt.Printf("failed to generate IAM policy: %s\n", err.Error())
 		os.Exit(1)
 	}
 
