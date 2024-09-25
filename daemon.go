@@ -1,143 +1,19 @@
-package main
+package dynamic53
 
 import (
-	"bytes"
 	"context"
-	"flag"
 	"fmt"
-	"io"
 	"math/rand/v2"
 	"net"
-	"net/http"
-	"os"
-	"os/signal"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
-
-const ADDRESS_API_URL = "https://ipinfo.io/ip"
-
-func main() {
-	configPath := flag.String("config", "", "File path of the config")
-	genPolicy := flag.Bool("genpolicy", false, "Generate an AWS identity-based IAM policy for dynamic53 using the given config")
-	dryRun := flag.Bool("dryrun", false, "Don't send any API requests to AWS")
-	logLevel := flag.String("loglevel", "info", "Logging level")
-	flag.Parse()
-
-	// Use the global default logger to report if we're unable to parse the
-	// user-supplied log level string
-	level, err := zerolog.ParseLevel(*logLevel)
-	if err != nil {
-		log.Fatal().Err(fmt.Errorf("unable to parse log level string: %w", err)).Send()
-	}
-
-	logger := zerolog.New(os.Stdout).With().Timestamp().Logger().Level(level)
-
-	cfg, err := ReadConfig(*configPath)
-	if err != nil {
-		logger.Fatal().Err(fmt.Errorf("cannot read configuration: %w", err)).Send()
-	}
-
-	err = ValidateConfig(cfg, *genPolicy)
-	if err != nil {
-		logger.Fatal().Err(fmt.Errorf("invalid configuration: %w", err)).Send()
-	}
-
-	if *genPolicy {
-		policy, err := GenerateIAMPolicy(cfg)
-		if err != nil {
-			logger.Fatal().Err(fmt.Errorf("invalid configuration: %w", err)).Send()
-		}
-
-		fmt.Println(policy)
-		return
-	}
-
-	ctx := logger.WithContext(context.Background())
-	ctx, cancel := context.WithCancel(ctx)
-
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		logger.Fatal().Err(fmt.Errorf("cannot load AWS configuration: %w", err)).Send()
-	}
-
-	// Request SIGINT signals be sent to a channel for handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
-
-	daemon := NewDaemon(cfg, route53.NewFromConfig(awsCfg), *dryRun)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		daemon.Start(ctx)
-		wg.Done()
-	}()
-
-	// Stop the running daemon if SIGINT is sent
-	<-sigChan
-	cancel()
-	wg.Wait()
-}
-
-func GenerateIAMPolicy(cfg *Config) (string, error) {
-	tmpl, err := template.New("iam-policy.tmpl").ParseFiles("iam-policy.tmpl")
-	if err != nil {
-		return "", fmt.Errorf("unable to parse template file: %w", err)
-	}
-
-	var buffer bytes.Buffer
-	err = tmpl.Execute(&buffer, cfg.Zones)
-	if err != nil {
-		return "", fmt.Errorf("unable to execute template: %w", err)
-	}
-
-	return buffer.String(), nil
-}
-
-// GetPublicIPv4 attempts to determine the current public IPv4 address of the
-// host by making a request to an external third-party API
-func GetPublicIPv4(ctx context.Context) (net.IP, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, ADDRESS_API_URL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("cannot create GET request: %w", err)
-	}
-
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("GET request failed: %w", err)
-	}
-
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status on response: %s", response.Status)
-	}
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	ip := net.ParseIP(string(body))
-	if ip == nil {
-		return nil, fmt.Errorf("response body does not look like an IP address")
-	}
-
-	ipv4 := ip.To4()
-	if ipv4 == nil {
-		return nil, fmt.Errorf("response body does not look like an IPv4 address")
-	}
-
-	return ipv4, nil
-}
 
 type Daemon struct {
 	Config *Config

@@ -1,6 +1,7 @@
-package main
+package dynamic53
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -18,6 +19,20 @@ type Config struct {
 	Zones []ZoneConfig `yaml:"zones"`
 }
 
+func (c Config) Validate() error {
+	errs := []error{c.Polling.Validate()}
+
+	if len(c.Zones) == 0 {
+		errs = append(errs, fmt.Errorf("must specify at least one zone"))
+	}
+
+	for _, zone := range c.Zones {
+		errs = append(errs, zone.Validate())
+	}
+
+	return errors.Join(errs...)
+}
+
 // ZoneConfig holds the configuration data for a single Route 53 hosted zone
 type ZoneConfig struct {
 	// Name is the name given to the Route53 hosted zone. Either Name or Id is
@@ -33,6 +48,28 @@ type ZoneConfig struct {
 	Records []string `yaml:"records"`
 }
 
+func (c ZoneConfig) Validate() error {
+	if c.Id == "" && c.Name == "" {
+		return fmt.Errorf("invalid zone: missing id or name")
+	}
+
+	if len(c.Records) == 0 {
+		return fmt.Errorf("invalid zone: must specify at least one record")
+	}
+
+	if len(c.Records) > 1000 {
+		return fmt.Errorf("invalid zone: managing more than 1000 records in a zone is not supported")
+	}
+
+	for _, record := range c.Records {
+		if record == "" {
+			return fmt.Errorf("invalid record: must not be an empty string")
+		}
+	}
+
+	return nil
+}
+
 // PollingConfig holds the configuration date for the dynamic53 daemon's IP
 // address polling behavior
 type PollingConfig struct {
@@ -46,9 +83,25 @@ type PollingConfig struct {
 	MaxJitter time.Duration `yaml:"maxJitter"`
 }
 
-func ReadConfig(configPath string) (*Config, error) {
+func (c PollingConfig) Validate() error {
+	if c.Interval <= 0 {
+		return fmt.Errorf("invalid polling config: interval must be positive and non-zero")
+	}
+
+	if c.MaxJitter < 0 {
+		return fmt.Errorf("invalid polling config: maxJitter must be positive")
+	}
+
+	if c.MaxJitter >= c.Interval {
+		return fmt.Errorf("invalid polling config: maxJitter must be less than polling interval")
+	}
+
+	return nil
+}
+
+func LoadConfig(configPath string) (*Config, error) {
 	if configPath == "" {
-		return nil, fmt.Errorf("no config file specified")
+		return nil, fmt.Errorf("no file specified")
 	}
 
 	file, err := os.Open(configPath)
@@ -65,49 +118,10 @@ func ReadConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("cannot parse yaml: %w", err)
 	}
 
+	err = cfg.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	return &cfg, nil
-}
-
-func ValidateConfig(cfg *Config, requireZoneId bool) error {
-	if cfg.Polling.Interval <= 0 {
-		return fmt.Errorf("invalid polling config: interval must be positive and non-zero")
-	}
-
-	if cfg.Polling.MaxJitter < 0 {
-		return fmt.Errorf("invalid polling config: maxJitter must be positive")
-	}
-
-	if cfg.Polling.MaxJitter >= cfg.Polling.Interval {
-		return fmt.Errorf("invalid polling config: maxJitter must be less than polling interval")
-	}
-
-	if len(cfg.Zones) == 0 {
-		return fmt.Errorf("must specify at least one zone")
-	}
-
-	for _, zone := range cfg.Zones {
-		if zone.Id == "" && zone.Name == "" {
-			return fmt.Errorf("invalid zone: missing id or name")
-		}
-
-		if requireZoneId && zone.Id == "" {
-			return fmt.Errorf("invalid zone: missing id")
-		}
-
-		if len(zone.Records) == 0 {
-			return fmt.Errorf("invalid zone: must specify at least one record")
-		}
-
-		if len(zone.Records) > 1000 {
-			return fmt.Errorf("invalid zone: managing more than 1000 records in a zone is not supported")
-		}
-
-		for _, record := range zone.Records {
-			if record == "" {
-				return fmt.Errorf("invalid record: must not be an empty string")
-			}
-		}
-	}
-
-	return nil
 }
