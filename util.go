@@ -1,14 +1,21 @@
 package dynamic53
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"text/template"
+
+	_ "embed"
 )
 
 const ADDRESS_API_URL = "https://ipinfo.io/ip"
+
+//go:embed templates/iam-policy.tmpl
+var IAM_POLICY_TEMPLATE string
 
 // GetPublicIPv4 attempts to determine the current public IPv4 address of the
 // host by making a request to an external third-party API
@@ -43,4 +50,19 @@ func GetPublicIPv4(ctx context.Context) (net.IP, error) {
 	}
 
 	return ipv4, nil
+}
+
+func GenerateIAMPolicy(cfg DaemonConfig) (string, error) {
+	tmpl, err := template.New("iam-policy").Parse(IAM_POLICY_TEMPLATE)
+	if err != nil {
+		return "", fmt.Errorf("unable to parse template file: %w", err)
+	}
+
+	var buffer bytes.Buffer
+	err = tmpl.Execute(&buffer, cfg.Zones)
+	if err != nil {
+		return "", fmt.Errorf("unable to execute template: %w", err)
+	}
+
+	return buffer.String(), nil
 }
