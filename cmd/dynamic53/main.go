@@ -18,7 +18,6 @@ import (
 
 func main() {
 	configPath := flag.String("config", "", "File path of the config")
-	dryRun := flag.Bool("dryrun", false, "Don't send any API requests to AWS")
 	logLevel := flag.String("loglevel", "info", "Logging level")
 	flag.Parse()
 
@@ -48,7 +47,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 
-	daemon := dynamic53.NewDaemon(cfg, route53.NewFromConfig(awsCfg), *dryRun)
+	daemon := dynamic53.NewDaemon(*cfg, route53.NewFromConfig(awsCfg))
 
 	var wg sync.WaitGroup
 	wg.Add(1)

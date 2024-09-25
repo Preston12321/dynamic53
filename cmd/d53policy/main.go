@@ -34,7 +34,7 @@ func main() {
 	fmt.Println(policy)
 }
 
-func GenerateIAMPolicy(cfg *dynamic53.Config) (string, error) {
+func GenerateIAMPolicy(cfg *dynamic53.DaemonConfig) (string, error) {
 	tmpl, err := template.New("iam-policy").Parse(IAM_POLICY_TEMPLATE)
 	if err != nil {
 		return "", fmt.Errorf("unable to parse template file: %w", err)

@@ -16,15 +16,13 @@ import (
 )
 
 type Daemon struct {
-	Config *Config
-	DryRun bool
+	Config DaemonConfig
 	client *route53.Client
 }
 
-func NewDaemon(config *Config, route53Client *route53.Client, dryRun bool) *Daemon {
+func NewDaemon(config DaemonConfig, route53Client *route53.Client) *Daemon {
 	return &Daemon{
 		Config: config,
-		DryRun: dryRun,
 		client: route53Client,
 	}
 }
@@ -98,6 +96,9 @@ func (d *Daemon) doUpdate(ctx context.Context) error {
 	return nil
 }
 
+// TODO: Ensure daemon can handle the 5 requests-per-second limit on Route 53 APIs
+// https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/DNSLimitations.html#limits-api-requests-route-53
+
 func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP) {
 	// Either zone.Id or zone.Name might be "", but set both fields on the
 	// logger so that it's clear what values were (un)set in the config
@@ -106,8 +107,8 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 
 	logger.Debug().Msg("Updating records in hosted zone")
 
-	if d.DryRun {
-		logger.Info().Msg("Skipping hosted zone update because of dry run")
+	if d.Config.SkipUpdate {
+		logger.Info().Msg("Skipping hosted zone update")
 		return
 	}
 

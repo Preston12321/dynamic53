@@ -9,8 +9,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config holds the top-level configuration data for the dynamic53 daemon
-type Config struct {
+// DaemonConfig holds the top-level configuration data for the dynamic53 daemon
+type DaemonConfig struct {
+	// SkipUpdate specifies that a daemon should skip sending Route 53 updates
+	// to the AWS API, printing a log message for each configured zone instead
+	SkipUpdate bool `yaml:"skipUpdate"`
+
 	// Polling contains the configuration for IP address polling
 	Polling PollingConfig `yaml:"polling"`
 
@@ -19,7 +23,7 @@ type Config struct {
 	Zones []ZoneConfig `yaml:"zones"`
 }
 
-func (c Config) Validate() error {
+func (c DaemonConfig) Validate() error {
 	errs := []error{c.Polling.Validate()}
 
 	if len(c.Zones) == 0 {
@@ -99,7 +103,7 @@ func (c PollingConfig) Validate() error {
 	return nil
 }
 
-func LoadConfig(configPath string) (*Config, error) {
+func LoadConfig(configPath string) (*DaemonConfig, error) {
 	if configPath == "" {
 		return nil, fmt.Errorf("no file specified")
 	}
@@ -110,10 +114,9 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 	defer file.Close()
 
-	decoder := yaml.NewDecoder(file)
+	var cfg DaemonConfig
 
-	var cfg Config
-	err = decoder.Decode(&cfg)
+	err = yaml.NewDecoder(file).Decode(&cfg)
 	if err != nil {
 		return nil, fmt.Errorf("cannot parse yaml: %w", err)
 	}
