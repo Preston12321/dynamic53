@@ -1,5 +1,7 @@
 # dynamic53 - Dynamic DNS for AWS Route 53
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/Preston12321/dynamic53.svg)](https://pkg.go.dev/github.com/Preston12321/dynamic53)
+
 A DNS update client that runs as a daemon and outputs structured logs. Comes
 with a tool to generate a restrictive identity-based IAM policy based on its
 configuration.
