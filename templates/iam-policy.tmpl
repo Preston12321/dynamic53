@@ -21,9 +21,10 @@
                 "arn:aws:route53:::change/*"
             ]
         },
-{{- range $index, $zone := . }}
+{{- $numZones := len . }}
+{{- range $indexOuter, $zone := . }}
         {
-            "Sid": "AllowEditingRecords{{ $index }}",
+            "Sid": "AllowEditingRecords{{ $indexOuter }}",
             "Effect": "Allow",
             "Action": [
                 "route53:ChangeResourceRecordSets"
@@ -34,8 +35,10 @@
             "Condition": {
                 "ForAllValues:StringEquals": {
                     "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
-                        "{{ index $zone.Records 0 }}"{{ range slice $zone.Records 1 }},
-                        "{{ . }}"{{ end }}
+                    {{- $numRecords := len $zone.Records }}
+                    {{- range $indexInner, $record := $zone.Records }}
+                        "{{ $record }}"{{ listSeparator $numRecords $indexInner "," }}
+                    {{- end }}
                     ],
                     "route53:ChangeResourceRecordSetsRecordTypes": [
                         "A"
@@ -46,7 +49,7 @@
                     ]
                 }
             }
-        }
+        }{{ listSeparator $numZones $indexOuter "," }}
 {{- end }}
     ]
 }
