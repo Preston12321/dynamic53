@@ -1,5 +1,6 @@
 # dynamic53 - Dynamic DNS for AWS Route 53
 
+[![GitHub License](https://img.shields.io/github/license/Preston12321/dynamic53)](LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Preston12321/dynamic53.svg)](https://pkg.go.dev/github.com/Preston12321/dynamic53)
 
 A DNS update client that runs as a daemon and outputs structured logs. Comes
