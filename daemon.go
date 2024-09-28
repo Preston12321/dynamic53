@@ -10,20 +10,19 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/route53"
-	"github.com/aws/aws-sdk-go-v2/service/route53/types"
-	"github.com/cenkalti/backoff/v4"
 	"github.com/rs/zerolog"
 )
 
 type Daemon struct {
 	Config DaemonConfig
-	client *route53.Client
+
+	route53Api Route53Api
 }
 
 func NewDaemon(config DaemonConfig, route53Client *route53.Client) *Daemon {
 	return &Daemon{
-		Config: config,
-		client: route53Client,
+		Config:     config,
+		route53Api: Route53Api{Manager: route53Client},
 	}
 }
 
@@ -105,53 +104,12 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 	logger := zerolog.Ctx(ctx).With().Str("zoneId", zone.Id).Str("zoneName", zone.Name).Logger()
 	logCtx := logger.WithContext(ctx)
 
-	logger.Debug().Msg("Updating records in hosted zone")
+	logger.Debug().Msg("Beginning update pass for hosted zone")
 
-	if d.Config.SkipUpdate {
-		logger.Info().Msg("Skipping hosted zone update")
+	hostedZone, err := d.route53Api.HostedZoneFromConfig(logCtx, zone)
+	if err != nil {
+		logger.Error().Err(err).Send()
 		return
-	}
-
-	var hostedZone *types.HostedZone
-
-	// Depending on what was supplied in the config, use either the ID or the
-	// name of the hosted zone to check if it exists and get info about it. If
-	// both ID and name were given in the config, then the ID is used to fetch
-	// the zone info, and the name from the config is checked against the name
-	// returned by the API
-	if zone.Id != "" {
-		input := route53.GetHostedZoneInput{Id: &zone.Id}
-
-		// Double-check that the given ID points to a real hosted zone
-		output, err := d.client.GetHostedZone(logCtx, &input)
-		if err != nil {
-			logger.Error().Err(fmt.Errorf("error getting hosted zone info: %w", err)).Send()
-			return
-		}
-
-		hostedZone = output.HostedZone
-
-		if zone.Name != "" && zone.Name != *hostedZone.Name {
-			logger.Error().Err(fmt.Errorf("hosted zone name does not match config: %s", *hostedZone.Name)).Send()
-			return
-		}
-	} else {
-		maxItems := int32(1)
-		input := route53.ListHostedZonesByNameInput{DNSName: &zone.Name, MaxItems: &maxItems}
-
-		// Find the hosted zone with the given name, if it exists
-		listOutput, err := d.client.ListHostedZonesByName(logCtx, &input)
-		if err != nil {
-			logger.Error().Err(fmt.Errorf("error listing hosted zones: %w", err)).Send()
-			return
-		}
-
-		if len(listOutput.HostedZones) == 0 {
-			logger.Error().Err(fmt.Errorf("cannot find hosted zone by name")).Send()
-			return
-		}
-
-		hostedZone = &listOutput.HostedZones[0]
 	}
 
 	// The API returns these in their fully-qualified form, but for the sake of
@@ -166,90 +124,24 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 
 	logger.Debug().Msg("Retrieved info about hosted zone")
 
-	// Create a batch change to update resource records
 	ttl := int64(d.Config.Polling.Interval.Seconds())
-	value := ipv4.String()
-	changes := make([]types.Change, 0, len(zone.Records))
-	for _, record := range zone.Records {
-		change := types.Change{
-			Action: types.ChangeActionUpsert,
-			ResourceRecordSet: &types.ResourceRecordSet{
-				Name:            &record,
-				Type:            types.RRTypeA,
-				TTL:             &ttl,
-				ResourceRecords: []types.ResourceRecord{{Value: &value}},
-			},
-		}
-		changes = append(changes, change)
-	}
-
-	input := route53.ChangeResourceRecordSetsInput{
-		HostedZoneId: &id,
-		ChangeBatch:  &types.ChangeBatch{Changes: changes},
-	}
-
-	changeOutput, err := d.client.ChangeResourceRecordSets(logCtx, &input)
+	batch, err := d.route53Api.GetChangesForZone(logCtx, hostedZone, zone.Records, ttl, ipv4)
 	if err != nil {
-		logger.Error().Err(fmt.Errorf("failed to update resource records: %w", err)).Send()
+		logger.Error().Err(err).Send()
 		return
 	}
 
-	changeId := strings.TrimPrefix(*changeOutput.ChangeInfo.Id, "/change/")
-	logger.Info().Msg("Sent resource record change for Route 53 hosted zone")
-
-	// The docs say propagation generally finishes within 60 seconds. We could
-	// set a timeout here to enforce some upper limit of wait time, but the
-	// parent context will do that for us eventually. Realistically, if we've
-	// gotten this far, the AWS change is going to complete at some point, and
-	// any failure to see that on the client side is more likely to be a network
-	// issue
-	err = d.waitForRRChange(logCtx, &changeId)
-
-	if err != nil {
-		logger.Error().Err(fmt.Errorf("error waiting for resource record change to propagate: %w", err)).Send()
+	if len(batch.Changes) == 0 {
+		logger.Info().Msg("Hosted zone already has the desired records")
 		return
 	}
 
-	logger.Info().Msg("Route 53 resource record change has finished propagating")
-}
+	logger.Info().Msg(fmt.Sprintf("Hosted zone requires %d updates", len(batch.Changes)))
 
-func (d *Daemon) waitForRRChange(ctx context.Context, changeId *string) error {
-	logger := zerolog.Ctx(ctx).With().Str("changeId", *changeId).Logger()
-	ctx = logger.WithContext(ctx)
-
-	logger.Debug().Msg("Waiting for Route 53 change to propagate")
-
-	bo := backoff.WithContext(
-		backoff.NewExponentialBackOff(
-			backoff.WithInitialInterval(5*time.Second),
-			backoff.WithMaxInterval(30*time.Second),
-			backoff.WithRandomizationFactor(0.25),
-		),
-		ctx,
-	)
-	return backoff.Retry(
-		func() error {
-			return d.verifyChangeHasPropagated(ctx, changeId)
-		},
-		bo,
-	)
-}
-
-func (d *Daemon) verifyChangeHasPropagated(ctx context.Context, changeId *string) error {
-	logger := *zerolog.Ctx(ctx)
-
-	output, err := d.client.GetChange(ctx, &route53.GetChangeInput{Id: changeId})
-	if err != nil {
-		wrapped := fmt.Errorf("failed to get change status: %w", err)
-
-		logger.Warn().Err(wrapped).Send()
-		return wrapped
+	if d.Config.SkipUpdate {
+		logger.Info().Msg("Skipping hosted zone update")
+		return
 	}
 
-	if output.ChangeInfo.Status != types.ChangeStatusInsync {
-		logger.Debug().Msg("change is still pending")
-		return fmt.Errorf("change is still pending")
-	}
-
-	return nil
+	d.route53Api.ApplyChangeBatch(logCtx, hostedZone, batch)
 }

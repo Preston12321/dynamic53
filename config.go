@@ -61,8 +61,8 @@ func (c ZoneConfig) Validate() error {
 		return fmt.Errorf("invalid zone: must specify at least one record")
 	}
 
-	if len(c.Records) > 1000 {
-		return fmt.Errorf("invalid zone: managing more than 1000 records in a zone is not supported")
+	if len(c.Records) > int(MaxRecordsPerZone) {
+		return fmt.Errorf("invalid zone: managing more than 300 records in a zone is not supported")
 	}
 
 	for _, record := range c.Records {
