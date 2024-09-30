@@ -1,4 +1,4 @@
-name: golangci-lint
+name: go-lint
 on:
   pull_request:
 
@@ -18,3 +18,4 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.61
+          args: --out-format=github-actions
