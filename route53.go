@@ -30,7 +30,9 @@ var MaxRecordsPerZone int32 = 300
 
 var ErrTooManyRecords error = fmt.Errorf("hosted zones with more than %d resource records are unsupported", MaxRecordsPerZone)
 
-type Route53Manager interface {
+// ZoneManager wraps the functionality of a route53.Client that is specifically
+// necessary to manage a hosted zone
+type ZoneManager interface {
 	GetHostedZone(ctx context.Context, params *route53.GetHostedZoneInput, optFns ...func(*route53.Options)) (*route53.GetHostedZoneOutput, error)
 	ListHostedZonesByName(ctx context.Context, params *route53.ListHostedZonesByNameInput, optFns ...func(*route53.Options)) (*route53.ListHostedZonesByNameOutput, error)
 	ListResourceRecordSets(ctx context.Context, params *route53.ListResourceRecordSetsInput, optFns ...func(*route53.Options)) (*route53.ListResourceRecordSetsOutput, error)
@@ -38,11 +40,13 @@ type Route53Manager interface {
 	GetChange(ctx context.Context, params *route53.GetChangeInput, optFns ...func(*route53.Options)) (*route53.GetChangeOutput, error)
 }
 
-type Route53Api struct {
-	Manager Route53Manager
+// ZoneUtility provides a high-level set of convenience functions to manage a
+// hosted zone
+type ZoneUtility struct {
+	Manager ZoneManager
 }
 
-func (a Route53Api) HostedZoneFromConfig(ctx context.Context, zone ZoneConfig) (*types.HostedZone, error) {
+func (a ZoneUtility) HostedZoneFromConfig(ctx context.Context, zone ZoneConfig) (*types.HostedZone, error) {
 	var hostedZone *types.HostedZone
 
 	// Depending on what was supplied in the config, use either the ID or the
@@ -91,7 +95,7 @@ func (a Route53Api) HostedZoneFromConfig(ctx context.Context, zone ZoneConfig) (
 	return hostedZone, nil
 }
 
-func (a Route53Api) GetChangesForZone(ctx context.Context, zone *types.HostedZone, records []string, ttl int64, ipv4 net.IP) (*types.ChangeBatch, error) {
+func (a ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZone, records []string, ttl int64, ipv4 net.IP) (*types.ChangeBatch, error) {
 	logger := zerolog.Ctx(ctx)
 	value := ipv4.String()
 
@@ -174,7 +178,7 @@ func (a Route53Api) GetChangesForZone(ctx context.Context, zone *types.HostedZon
 	return &types.ChangeBatch{Changes: changes}, nil
 }
 
-func (a Route53Api) ApplyChangeBatch(ctx context.Context, zone *types.HostedZone, batch *types.ChangeBatch) {
+func (a ZoneUtility) ApplyChangeBatch(ctx context.Context, zone *types.HostedZone, batch *types.ChangeBatch) {
 	logger := zerolog.Ctx(ctx)
 
 	input := route53.ChangeResourceRecordSetsInput{
@@ -207,7 +211,7 @@ func (a Route53Api) ApplyChangeBatch(ctx context.Context, zone *types.HostedZone
 	logger.Info().Msg("Hosted zone change has finished propagating")
 }
 
-func (a Route53Api) WaitForChange(ctx context.Context, changeId *string) error {
+func (a ZoneUtility) WaitForChange(ctx context.Context, changeId *string) error {
 	logger := zerolog.Ctx(ctx).With().Str("changeId", *changeId).Logger()
 	ctx = logger.WithContext(ctx)
 
@@ -239,7 +243,7 @@ func (a Route53Api) WaitForChange(ctx context.Context, changeId *string) error {
 	)
 }
 
-func (a Route53Api) VerifyChangeHasPropagated(ctx context.Context, changeId *string) (bool, error) {
+func (a ZoneUtility) VerifyChangeHasPropagated(ctx context.Context, changeId *string) (bool, error) {
 	logger := *zerolog.Ctx(ctx)
 
 	output, err := a.Manager.GetChange(ctx, &route53.GetChangeInput{Id: changeId})
