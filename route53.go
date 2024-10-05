@@ -26,6 +26,7 @@ import (
 // to 34 requests, given the maximum number of records allowed by AWS in a
 // hosted zone is 10,000. To keep this simple and performant, pagination is not
 // supported and the MaxRecordsPerZone limit is enforced.
+var MaxRecordsPerZone int32 = 300
 
 var ErrTooManyRecords error = fmt.Errorf("hosted zones with more than %d resource records are unsupported", MaxRecordsPerZone)
 
