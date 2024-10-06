@@ -103,6 +103,7 @@ func (c PollingConfig) Validate() error {
 	return nil
 }
 
+// LoadConfig reads and parses the configuration file at the given path
 func LoadConfig(configPath string) (*DaemonConfig, error) {
 	if configPath == "" {
 		return nil, fmt.Errorf("no file specified")

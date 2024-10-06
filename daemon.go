@@ -13,19 +13,22 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Daemon manages Route53 resources
 type Daemon struct {
+	// Config controls the dynamic53 daemon's behavior
 	Config DaemonConfig
 
-	route53Api Route53Api
+	utility ZoneUtility
 }
 
 func NewDaemon(config DaemonConfig, route53Client *route53.Client) *Daemon {
 	return &Daemon{
-		Config:     config,
-		route53Api: Route53Api{Manager: route53Client},
+		Config:  config,
+		utility: ZoneUtility{Manager: route53Client},
 	}
 }
 
+// Start begins the dynamic53 daemon's poll-and-update loop
 func (d *Daemon) Start(ctx context.Context) {
 	logger := zerolog.Ctx(ctx)
 	logger.Info().Stringer("pollingInterval", d.Config.Polling.Interval).Msg("Starting dynamic53 daemon")
@@ -106,7 +109,7 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 
 	logger.Debug().Msg("Beginning update pass for hosted zone")
 
-	hostedZone, err := d.route53Api.HostedZoneFromConfig(logCtx, zone)
+	hostedZone, err := d.utility.HostedZoneFromConfig(logCtx, zone)
 	if err != nil {
 		logger.Error().Err(err).Send()
 		return
@@ -125,7 +128,7 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 	logger.Debug().Msg("Retrieved info about hosted zone")
 
 	ttl := int64(d.Config.Polling.Interval.Seconds())
-	batch, err := d.route53Api.GetChangesForZone(logCtx, hostedZone, zone.Records, ttl, ipv4)
+	batch, err := d.utility.GetChangesForZone(logCtx, hostedZone, zone.Records, ttl, ipv4)
 	if err != nil {
 		logger.Error().Err(err).Send()
 		return
@@ -143,5 +146,5 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 		return
 	}
 
-	d.route53Api.ApplyChangeBatch(logCtx, hostedZone, batch)
+	d.utility.ApplyChangeBatch(logCtx, hostedZone, batch)
 }
