@@ -63,6 +63,9 @@ func listSeparator(length int, index int, separator string) string {
 	return separator
 }
 
+// GenerateIAMPolicy returns a JSON string representing an identity-based AWS
+// IAM policy granting the necessary permissions for a dynamic53 client to
+// manage the zones and records specified in the given configuration
 func GenerateIAMPolicy(cfg DaemonConfig) (string, error) {
 	funcs := template.FuncMap{"listSeparator": listSeparator}
 	tmpl, err := template.New("iam-policy").Funcs(funcs).Parse(IAM_POLICY_TEMPLATE)

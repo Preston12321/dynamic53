@@ -28,6 +28,8 @@ import (
 // supported and the MaxRecordsPerZone limit is enforced.
 var MaxRecordsPerZone int32 = 300
 
+// ErrTooManyRecords signifies that a hosted zone contains more resource records
+// than the supported limit, MaxRecordsPerZone
 var ErrTooManyRecords error = fmt.Errorf("hosted zones with more than %d resource records are unsupported", MaxRecordsPerZone)
 
 // ZoneManager wraps the functionality of a route53.Client that is specifically
@@ -46,6 +48,8 @@ type ZoneUtility struct {
 	Manager ZoneManager
 }
 
+// HostedZoneFromConfig retrieves informaton on the hosted zone specified by the
+// given configuration
 func (a ZoneUtility) HostedZoneFromConfig(ctx context.Context, zone ZoneConfig) (*types.HostedZone, error) {
 	var hostedZone *types.HostedZone
 
@@ -95,6 +99,9 @@ func (a ZoneUtility) HostedZoneFromConfig(ctx context.Context, zone ZoneConfig) 
 	return hostedZone, nil
 }
 
+// GetChangesForZone computes the changes necessary for all specified A records
+// in the given hosted zone to reflect the specified IPv4 address with the given
+// TTL
 func (a ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZone, records []string, ttl int64, ipv4 net.IP) (*types.ChangeBatch, error) {
 	logger := zerolog.Ctx(ctx)
 	value := ipv4.String()
@@ -178,6 +185,8 @@ func (a ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZo
 	return &types.ChangeBatch{Changes: changes}, nil
 }
 
+// ApplyChangeBatch applies the given changes to the hosted zone, blocking until
+// those changes have completed
 func (a ZoneUtility) ApplyChangeBatch(ctx context.Context, zone *types.HostedZone, batch *types.ChangeBatch) {
 	logger := zerolog.Ctx(ctx)
 
@@ -211,6 +220,8 @@ func (a ZoneUtility) ApplyChangeBatch(ctx context.Context, zone *types.HostedZon
 	logger.Info().Msg("Hosted zone change has finished propagating")
 }
 
+// WaitForChange blocks until the hosted zone change corresponding to the given
+// changeId has completed
 func (a ZoneUtility) WaitForChange(ctx context.Context, changeId *string) error {
 	logger := zerolog.Ctx(ctx).With().Str("changeId", *changeId).Logger()
 	ctx = logger.WithContext(ctx)
@@ -243,6 +254,8 @@ func (a ZoneUtility) WaitForChange(ctx context.Context, changeId *string) error 
 	)
 }
 
+// VerifyChangeHasPropagated returns a boolean describing whether the hosted
+// zone change corresponding to the given changeId has completed propagation
 func (a ZoneUtility) VerifyChangeHasPropagated(ctx context.Context, changeId *string) (bool, error) {
 	logger := *zerolog.Ctx(ctx)
 
