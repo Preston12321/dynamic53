@@ -199,12 +199,14 @@ func TestHostedZoneFromId(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
 			assertion := assert.New(tt)
-			ctx := context.WithValue(context.Background(), "foo", "bar")
+
+			type key string
+			ctx := context.WithValue(context.Background(), key("foo"), "bar")
 
 			client := mockRoute53Client{
 				mockGetHostedZone: func(ctx context.Context, input *route53.GetHostedZoneInput) (*route53.GetHostedZoneOutput, error) {
 					assertion.Nil(ctx.Err(), "context should not be canceled")
-					assertion.Equal("bar", ctx.Value("foo"), "context should be the same as passed in")
+					assertion.Equal("bar", ctx.Value(key("foo")), "context should be the same as passed in")
 					assertion.Equal(tc.inputId, *input.Id)
 
 					if tc.mockErr != nil {
@@ -291,12 +293,14 @@ func TestHostedZoneFromName(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
 			assertion := assert.New(tt)
-			ctx := context.WithValue(context.Background(), "foo", "bar")
+
+			type key string
+			ctx := context.WithValue(context.Background(), key("foo"), "bar")
 
 			client := mockRoute53Client{
 				mockListHostedZonesByName: func(ctx context.Context, input *route53.ListHostedZonesByNameInput) (*route53.ListHostedZonesByNameOutput, error) {
 					assertion.Nil(ctx.Err(), "context should not be canceled")
-					assertion.Equal("bar", ctx.Value("foo"), "context should be the same as passed in")
+					assertion.Equal("bar", ctx.Value(key("foo")), "context should be the same as passed in")
 					assertion.Equal((*string)(nil), input.HostedZoneId)
 					assertion.Equal(int32(1), *input.MaxItems)
 					assertion.Equal(tc.inputName, *input.DNSName)
@@ -509,14 +513,15 @@ func TestGetChangesForZone(t *testing.T) {
 		t.Run(tc.name, func(tt *testing.T) {
 			assertion := assert.New(tt)
 
+			type key string
 			logger := zerolog.Nop()
 			ctx := logger.WithContext(context.Background())
-			ctx = context.WithValue(ctx, "foo", "bar")
+			ctx = context.WithValue(ctx, key("foo"), "bar")
 
 			client := mockRoute53Client{
 				mockListResourceRecordSets: func(ctx context.Context, input *route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error) {
 					assertion.Nil(ctx.Err(), "context should not be canceled")
-					assertion.Equal("bar", ctx.Value("foo"), "context should be the same as passed in")
+					assertion.Equal("bar", ctx.Value(key("foo")), "context should be the same as passed in")
 					assertion.NotNil(tc.inputZone)
 					assertion.Equal(*tc.inputZone.Id, *input.HostedZoneId)
 					assertion.NotNil(input.MaxItems)
@@ -820,14 +825,15 @@ func TestVerifyChangeHasPropagated(t *testing.T) {
 		t.Run(tc.name, func(tt *testing.T) {
 			assertion := assert.New(tt)
 
+			type key string
 			logger := zerolog.Nop()
 			ctx := logger.WithContext(context.Background())
-			ctx = context.WithValue(ctx, "foo", "bar")
+			ctx = context.WithValue(ctx, key("foo"), "bar")
 
 			client := mockRoute53Client{
 				mockGetChange: func(ctx context.Context, input *route53.GetChangeInput) (*route53.GetChangeOutput, error) {
 					assertion.Nil(ctx.Err(), "context should not be canceled")
-					assertion.Equal("bar", ctx.Value("foo"), "context should be the same as passed in")
+					assertion.Equal("bar", ctx.Value(key("foo")), "context should be the same as passed in")
 					assertion.Equal(tc.inputId, *input.Id)
 
 					if tc.mockErrMsg != "" {
