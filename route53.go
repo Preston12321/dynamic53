@@ -2,6 +2,7 @@ package dynamic53
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -35,81 +36,131 @@ var ErrTooManyRecords error = fmt.Errorf("hosted zones with more than %d resourc
 // ZoneManager wraps the functionality of a route53.Client that is specifically
 // necessary to manage a hosted zone
 type ZoneManager interface {
-	GetHostedZone(ctx context.Context, params *route53.GetHostedZoneInput, optFns ...func(*route53.Options)) (*route53.GetHostedZoneOutput, error)
-	ListHostedZonesByName(ctx context.Context, params *route53.ListHostedZonesByNameInput, optFns ...func(*route53.Options)) (*route53.ListHostedZonesByNameOutput, error)
-	ListResourceRecordSets(ctx context.Context, params *route53.ListResourceRecordSetsInput, optFns ...func(*route53.Options)) (*route53.ListResourceRecordSetsOutput, error)
-	ChangeResourceRecordSets(ctx context.Context, input *route53.ChangeResourceRecordSetsInput, optFns ...func(*route53.Options)) (*route53.ChangeResourceRecordSetsOutput, error)
-	GetChange(ctx context.Context, params *route53.GetChangeInput, optFns ...func(*route53.Options)) (*route53.GetChangeOutput, error)
+	GetHostedZone(
+		ctx context.Context,
+		params *route53.GetHostedZoneInput,
+		optFns ...func(*route53.Options),
+	) (*route53.GetHostedZoneOutput, error)
+	ListHostedZonesByName(
+		ctx context.Context,
+		params *route53.ListHostedZonesByNameInput,
+		optFns ...func(*route53.Options),
+	) (*route53.ListHostedZonesByNameOutput, error)
+	ListResourceRecordSets(
+		ctx context.Context,
+		params *route53.ListResourceRecordSetsInput,
+		optFns ...func(*route53.Options),
+	) (*route53.ListResourceRecordSetsOutput, error)
+	ChangeResourceRecordSets(
+		ctx context.Context,
+		input *route53.ChangeResourceRecordSetsInput,
+		optFns ...func(*route53.Options),
+	) (*route53.ChangeResourceRecordSetsOutput, error)
+	GetChange(
+		ctx context.Context,
+		params *route53.GetChangeInput,
+		optFns ...func(*route53.Options),
+	) (*route53.GetChangeOutput, error)
+}
+
+func createDefaultBackoff() backoff.BackOff {
+	return backoff.NewExponentialBackOff(
+		backoff.WithInitialInterval(5*time.Second),
+		backoff.WithMaxInterval(30*time.Second),
+		backoff.WithRandomizationFactor(0.25),
+	)
 }
 
 // ZoneUtility provides a high-level set of convenience functions to manage a
 // hosted zone
 type ZoneUtility struct {
-	Manager ZoneManager
+	manager       ZoneManager
+	createBackoff func() backoff.BackOff
+}
+
+func NewZoneUtility(route53Client *route53.Client) ZoneUtility {
+	return ZoneUtility{
+		manager:       route53Client,
+		createBackoff: createDefaultBackoff,
+	}
 }
 
 // HostedZoneFromConfig retrieves informaton on the hosted zone specified by the
-// given configuration
-func (a ZoneUtility) HostedZoneFromConfig(ctx context.Context, zone ZoneConfig) (*types.HostedZone, error) {
-	var hostedZone *types.HostedZone
-
-	// Depending on what was supplied in the config, use either the ID or the
-	// name of the hosted zone to check if it exists and get info about it. If
-	// both ID and name were given in the config, then the ID is used to fetch
-	// the zone info, and the name from the config is checked against the name
-	// returned by the API
-	if zone.Id != "" {
-		input := route53.GetHostedZoneInput{Id: &zone.Id}
-
-		// Double-check that the given ID points to a real hosted zone
-		output, err := a.Manager.GetHostedZone(ctx, &input)
-		if err != nil {
-			return nil, fmt.Errorf("error getting hosted zone info: %w", err)
+// given configuration. If the Id is defined, the lookup is done based on that,
+// with a cross-check of the configured Name if it is also defined. Otherwise,
+// the Name is used for the lookup
+func (u ZoneUtility) HostedZoneFromConfig(ctx context.Context, zone ZoneConfig) (*types.HostedZone, error) {
+	if zone.Id == "" {
+		if zone.Name == "" {
+			return nil, errors.New("hosted zone config has neither id nor name set")
 		}
 
-		hostedZone = output.HostedZone
-
-		trimmedConfig := strings.TrimSuffix(zone.Name, ".")
-		trimmedActual := strings.TrimSuffix(*hostedZone.Name, ".")
-
-		if zone.Name != "" && trimmedConfig != trimmedActual {
-			return nil, fmt.Errorf("hosted zone name does not match config: %s", trimmedActual)
-		}
-	} else {
-		maxItems := int32(1)
-		input := route53.ListHostedZonesByNameInput{DNSName: &zone.Name, MaxItems: &maxItems}
-
-		// Find the hosted zone with the given name, if it exists
-		listOutput, err := a.Manager.ListHostedZonesByName(ctx, &input)
-		if err != nil {
-			return nil, fmt.Errorf("error listing hosted zones: %w", err)
-		}
-
-		if len(listOutput.HostedZones) == 0 {
-			return nil, fmt.Errorf("cannot find hosted zone by name")
-		}
-
-		hostedZone = &listOutput.HostedZones[0]
+		return u.HostedZoneFromName(ctx, zone.Name)
 	}
 
-	if *hostedZone.ResourceRecordSetCount > int64(MaxRecordsPerZone) {
-		return nil, ErrTooManyRecords
+	hostedZone, err := u.HostedZoneFromId(ctx, zone.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the zone's name was supplied in the config, do a sanity check to
+	// make sure it matches what was returned by the API
+	actualName := ShortenDNSName(*hostedZone.Name)
+	if zone.Name != "" && ShortenDNSName(zone.Name) != actualName {
+		return nil, fmt.Errorf("hosted zone name does not match config: %s", actualName)
 	}
 
 	return hostedZone, nil
 }
 
+func (u ZoneUtility) HostedZoneFromId(ctx context.Context, id string) (*types.HostedZone, error) {
+	input := route53.GetHostedZoneInput{Id: &id}
+
+	// Double-check that the given ID points to a real hosted zone
+	output, err := u.manager.GetHostedZone(ctx, &input)
+	if err != nil {
+		return nil, fmt.Errorf("error getting hosted zone info: %w", err)
+	}
+
+	return output.HostedZone, nil
+}
+
+func (u ZoneUtility) HostedZoneFromName(ctx context.Context, dnsName string) (*types.HostedZone, error) {
+	maxItems := int32(1)
+	input := route53.ListHostedZonesByNameInput{DNSName: &dnsName, MaxItems: &maxItems}
+
+	// Find the hosted zone with the given name, if it exists
+	listOutput, err := u.manager.ListHostedZonesByName(ctx, &input)
+	if err != nil {
+		return nil, fmt.Errorf("error listing hosted zones: %w", err)
+	}
+
+	if len(listOutput.HostedZones) == 0 {
+		return nil, fmt.Errorf("cannot find hosted zone by name")
+	}
+
+	return &listOutput.HostedZones[0], nil
+}
+
 // GetChangesForZone computes the changes necessary for all specified A records
 // in the given hosted zone to reflect the specified IPv4 address with the given
 // TTL
-func (a ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZone, records []string, ttl int64, ipv4 net.IP) (*types.ChangeBatch, error) {
+func (u ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZone, records []string, ttl int64, ipv4 net.IP) (*types.ChangeBatch, error) {
+	if zone == nil {
+		return nil, errors.New("nil zone")
+	}
+
+	if len(records) == 0 {
+		return &types.ChangeBatch{Changes: []types.Change{}}, nil
+	}
+
 	logger := zerolog.Ctx(ctx)
 	value := ipv4.String()
 
 	// Throw the records list into a map to get quicker lookups for matching
 	desiredRecords := make(map[string]*types.ResourceRecordSet, len(records))
 	for _, record := range records {
-		stripped := strings.TrimSuffix(record, ".")
+		stripped := ShortenDNSName(record)
 		desiredRecords[stripped] = &types.ResourceRecordSet{
 			Name:            &stripped,
 			Type:            types.RRTypeA,
@@ -125,7 +176,7 @@ func (a ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZo
 		MaxItems:     &MaxRecordsPerZone,
 	}
 
-	output, err := a.Manager.ListResourceRecordSets(ctx, &input)
+	output, err := u.manager.ListResourceRecordSets(ctx, &input)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list resource records: %w", err)
 	}
@@ -137,7 +188,7 @@ func (a ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZo
 	}
 
 	for _, awsRecord := range output.ResourceRecordSets {
-		stripped := strings.TrimSuffix(*awsRecord.Name, ".")
+		stripped := ShortenDNSName(*awsRecord.Name)
 
 		// Ignore records of unsupported type
 		if awsRecord.Type != types.RRTypeA || awsRecord.SetIdentifier != nil {
@@ -187,7 +238,15 @@ func (a ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZo
 
 // ApplyChangeBatch applies the given changes to the hosted zone, blocking until
 // those changes have completed
-func (a ZoneUtility) ApplyChangeBatch(ctx context.Context, zone *types.HostedZone, batch *types.ChangeBatch) {
+func (u ZoneUtility) ApplyChangeBatch(ctx context.Context, zone *types.HostedZone, batch *types.ChangeBatch) error {
+	if zone == nil {
+		return errors.New("nil zone")
+	}
+
+	if batch == nil {
+		return errors.New("nil change batch")
+	}
+
 	logger := zerolog.Ctx(ctx)
 
 	input := route53.ChangeResourceRecordSetsInput{
@@ -195,10 +254,9 @@ func (a ZoneUtility) ApplyChangeBatch(ctx context.Context, zone *types.HostedZon
 		ChangeBatch:  batch,
 	}
 
-	changeOutput, err := a.Manager.ChangeResourceRecordSets(ctx, &input)
+	changeOutput, err := u.manager.ChangeResourceRecordSets(ctx, &input)
 	if err != nil {
-		logger.Error().Err(fmt.Errorf("failed to update resource records: %w", err)).Send()
-		return
+		return fmt.Errorf("failed to update resource records: %w", err)
 	}
 
 	changeId := strings.TrimPrefix(*changeOutput.ChangeInfo.Id, "/change/")
@@ -210,35 +268,34 @@ func (a ZoneUtility) ApplyChangeBatch(ctx context.Context, zone *types.HostedZon
 	// gotten this far, the AWS change is going to complete at some point, and
 	// any failure to see that on the client side is more likely to be a network
 	// issue
-	err = a.WaitForChange(ctx, &changeId)
-
+	err = u.WaitForChange(ctx, changeId)
 	if err != nil {
-		logger.Error().Err(fmt.Errorf("error waiting for resource record change to propagate: %w", err)).Send()
-		return
+		return fmt.Errorf("error waiting for resource record change to propagate: %w", err)
 	}
 
 	logger.Info().Msg("Hosted zone change has finished propagating")
+	return nil
 }
 
 // WaitForChange blocks until the hosted zone change corresponding to the given
 // changeId has completed
-func (a ZoneUtility) WaitForChange(ctx context.Context, changeId *string) error {
-	logger := zerolog.Ctx(ctx).With().Str("changeId", *changeId).Logger()
+func (u ZoneUtility) WaitForChange(ctx context.Context, changeId string) error {
+	logger := zerolog.Ctx(ctx).With().Str("changeId", changeId).Logger()
 	ctx = logger.WithContext(ctx)
 
 	logger.Debug().Msg("Waiting for Route 53 change to propagate")
 
-	bo := backoff.WithContext(
-		backoff.NewExponentialBackOff(
-			backoff.WithInitialInterval(5*time.Second),
-			backoff.WithMaxInterval(30*time.Second),
-			backoff.WithRandomizationFactor(0.25),
-		),
-		ctx,
-	)
+	var bo backoff.BackOff
+
+	if u.createBackoff != nil {
+		bo = u.createBackoff()
+	} else {
+		bo = createDefaultBackoff()
+	}
+
 	return backoff.Retry(
 		func() error {
-			done, err := a.VerifyChangeHasPropagated(ctx, changeId)
+			done, err := u.VerifyChangeHasPropagated(ctx, changeId)
 			if err != nil {
 				logger.Warn().Err(err).Send()
 				return err
@@ -250,16 +307,16 @@ func (a ZoneUtility) WaitForChange(ctx context.Context, changeId *string) error 
 
 			return nil
 		},
-		bo,
+		backoff.WithContext(bo, ctx),
 	)
 }
 
 // VerifyChangeHasPropagated returns a boolean describing whether the hosted
 // zone change corresponding to the given changeId has completed propagation
-func (a ZoneUtility) VerifyChangeHasPropagated(ctx context.Context, changeId *string) (bool, error) {
+func (u ZoneUtility) VerifyChangeHasPropagated(ctx context.Context, changeId string) (bool, error) {
 	logger := *zerolog.Ctx(ctx)
 
-	output, err := a.Manager.GetChange(ctx, &route53.GetChangeInput{Id: changeId})
+	output, err := u.manager.GetChange(ctx, &route53.GetChangeInput{Id: &changeId})
 	if err != nil {
 		wrapped := fmt.Errorf("failed to get change status: %w", err)
 

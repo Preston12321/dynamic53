@@ -13,7 +13,18 @@ func main() {
 	configPath := flag.String("config", "", "File path of the config")
 	flag.Parse()
 
-	cfg, err := dynamic53.LoadConfig(*configPath)
+	if *configPath == "" {
+		fmt.Println("no configuration file specified")
+	}
+
+	configFile, err := os.Open(*configPath)
+	if err != nil {
+		fmt.Printf("cannot open configuration file: %s\n", err.Error())
+	}
+
+	cfg, err := dynamic53.LoadDaemonConfig(configFile)
+	configFile.Close()
+
 	if err != nil {
 		fmt.Printf("error loading configuration: %s\n", err.Error())
 		os.Exit(1)

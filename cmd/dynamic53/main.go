@@ -30,7 +30,18 @@ func main() {
 
 	logger := zerolog.New(os.Stdout).With().Timestamp().Logger().Level(level)
 
-	cfg, err := dynamic53.LoadConfig(*configPath)
+	if *configPath == "" {
+		logger.Fatal().Err(fmt.Errorf("no configuration file specified")).Send()
+	}
+
+	configFile, err := os.Open(*configPath)
+	if err != nil {
+		logger.Fatal().Err(fmt.Errorf("cannot open configuration file: %w", err)).Send()
+	}
+
+	cfg, err := dynamic53.LoadDaemonConfig(configFile)
+	configFile.Close()
+
 	if err != nil {
 		logger.Fatal().Err(fmt.Errorf("error loading configuration: %w", err)).Send()
 	}
