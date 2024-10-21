@@ -13,9 +13,9 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Daemon manages Route53 resources
+// Daemon manages Route53 resources.
 type Daemon struct {
-	// Config controls the dynamic53 daemon's behavior
+	// Config controls the dynamic53 daemon's behavior.
 	Config DaemonConfig
 
 	zoneUtility   ZoneUtility
@@ -25,7 +25,7 @@ type Daemon struct {
 func NewDaemon(config DaemonConfig, route53Client *route53.Client) *Daemon {
 	pollingUrl := config.Polling.Url
 	if pollingUrl == "" {
-		pollingUrl = DefaultAddressApiUrl
+		pollingUrl = "https://ipinfo.io/ip"
 	}
 
 	return &Daemon{
@@ -35,7 +35,7 @@ func NewDaemon(config DaemonConfig, route53Client *route53.Client) *Daemon {
 	}
 }
 
-// Start begins the dynamic53 daemon's poll-and-update loop
+// Start begins the dynamic53 daemon's poll-and-update loop.
 func (d *Daemon) Start(ctx context.Context) {
 	logger := zerolog.Ctx(ctx)
 	logger.Info().Stringer("pollingInterval", d.Config.Polling.Interval).Msg("Starting dynamic53 daemon")
