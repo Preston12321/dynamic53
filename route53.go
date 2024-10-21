@@ -30,11 +30,11 @@ import (
 var MaxRecordsPerZone int32 = 300
 
 // ErrTooManyRecords signifies that a hosted zone contains more resource records
-// than the supported limit, MaxRecordsPerZone
+// than the supported limit, MaxRecordsPerZone.
 var ErrTooManyRecords error = fmt.Errorf("hosted zones with more than %d resource records are unsupported", MaxRecordsPerZone)
 
 // zoneManager wraps the functionality of a route53.Client that is specifically
-// necessary to manage a hosted zone
+// necessary to manage a hosted zone.
 type zoneManager interface {
 	GetHostedZone(
 		ctx context.Context,
@@ -71,8 +71,18 @@ func createDefaultBackoff() backoff.BackOff {
 	)
 }
 
+// ShortenZoneId returns the given hosted zone ID without its optional prefix.
+func ShortenZoneId(id string) string {
+	return strings.TrimPrefix(id, "/hostedzone/")
+}
+
+// ShortenDNSName returns the given DNS name without a trailing dot.
+func ShortenDNSName(name string) string {
+	return strings.TrimSuffix(name, ".")
+}
+
 // ZoneUtility provides a high-level set of convenience functions to manage a
-// hosted zone
+// hosted zone.
 type ZoneUtility struct {
 	manager       zoneManager
 	createBackoff func() backoff.BackOff
@@ -88,7 +98,7 @@ func NewZoneUtility(route53Client *route53.Client) ZoneUtility {
 // HostedZoneFromConfig retrieves informaton on the hosted zone specified by the
 // given configuration. If the Id is defined, the lookup is done based on that,
 // with a cross-check of the configured Name if it is also defined. Otherwise,
-// the Name is used for the lookup
+// the Name is used for the lookup.
 func (u ZoneUtility) HostedZoneFromConfig(ctx context.Context, zone ZoneConfig) (*types.HostedZone, error) {
 	if zone.Id == "" {
 		if zone.Name == "" {
@@ -113,6 +123,7 @@ func (u ZoneUtility) HostedZoneFromConfig(ctx context.Context, zone ZoneConfig) 
 	return hostedZone, nil
 }
 
+// HostedZoneFromId retrieves informaton on the hosted zone with the given id.
 func (u ZoneUtility) HostedZoneFromId(ctx context.Context, id string) (*types.HostedZone, error) {
 	input := route53.GetHostedZoneInput{Id: &id}
 
@@ -125,6 +136,8 @@ func (u ZoneUtility) HostedZoneFromId(ctx context.Context, id string) (*types.Ho
 	return output.HostedZone, nil
 }
 
+// HostedZoneFromName retrieves informaton on the hosted zone with the given
+// name.
 func (u ZoneUtility) HostedZoneFromName(ctx context.Context, dnsName string) (*types.HostedZone, error) {
 	maxItems := int32(1)
 	input := route53.ListHostedZonesByNameInput{DNSName: &dnsName, MaxItems: &maxItems}
@@ -144,7 +157,7 @@ func (u ZoneUtility) HostedZoneFromName(ctx context.Context, dnsName string) (*t
 
 // GetChangesForZone computes the changes necessary for all specified A records
 // in the given hosted zone to reflect the specified IPv4 address with the given
-// TTL
+// TTL.
 func (u ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZone, records []string, ttl int64, ipv4 net.IP) (*types.ChangeBatch, error) {
 	if zone == nil {
 		return nil, errors.New("nil zone")
@@ -239,7 +252,7 @@ func (u ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZo
 }
 
 // ApplyChangeBatch applies the given changes to the hosted zone, blocking until
-// those changes have completed
+// those changes have completed.
 func (u ZoneUtility) ApplyChangeBatch(ctx context.Context, zone *types.HostedZone, batch *types.ChangeBatch) error {
 	if zone == nil {
 		return errors.New("nil zone")
@@ -280,7 +293,7 @@ func (u ZoneUtility) ApplyChangeBatch(ctx context.Context, zone *types.HostedZon
 }
 
 // WaitForChange blocks until the hosted zone change corresponding to the given
-// changeId has completed
+// changeId has completed.
 func (u ZoneUtility) WaitForChange(ctx context.Context, changeId string) error {
 	logger := zerolog.Ctx(ctx).With().Str("changeId", changeId).Logger()
 	ctx = logger.WithContext(ctx)
@@ -314,7 +327,7 @@ func (u ZoneUtility) WaitForChange(ctx context.Context, changeId string) error {
 }
 
 // VerifyChangeHasPropagated returns a boolean describing whether the hosted
-// zone change corresponding to the given changeId has completed propagation
+// zone change corresponding to the given changeId has completed propagation.
 func (u ZoneUtility) VerifyChangeHasPropagated(ctx context.Context, changeId string) (bool, error) {
 	logger := *zerolog.Ctx(ctx)
 

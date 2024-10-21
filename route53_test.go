@@ -13,10 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func createZeroBackoff() backoff.BackOff {
-	return &backoff.ZeroBackOff{}
-}
-
 type mockRoute53Client struct {
 	mockGetHostedZone            func(context.Context, *route53.GetHostedZoneInput) (*route53.GetHostedZoneOutput, error)
 	mockListHostedZonesByName    func(context.Context, *route53.ListHostedZonesByNameInput) (*route53.ListHostedZonesByNameOutput, error)
@@ -63,6 +59,54 @@ func (u mockRoute53Client) GetChange(
 	_ ...func(*route53.Options),
 ) (*route53.GetChangeOutput, error) {
 	return u.mockGetChange(ctx, params)
+}
+
+func createZeroBackoff() backoff.BackOff {
+	return &backoff.ZeroBackOff{}
+}
+
+func TestShortenZoneId(t *testing.T) {
+	type testCase struct {
+		name           string
+		input          string
+		expectedOutput string
+	}
+
+	cases := []testCase{
+		{"already shortened", "foobar", "foobar"},
+		{"needs to be shortened", "/hostedzone/foobar", "foobar"},
+		{"don't remove from middle of the string", "foo/hostedzone/bar", "foo/hostedzone/bar"},
+		{"don't remove from the end of the string", "foobar/hostedzone/", "foobar/hostedzone/"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			assertion := assert.New(tt)
+			assertion.Equal(tc.expectedOutput, ShortenZoneId(tc.input))
+		})
+	}
+}
+
+func TestShortenDNSName(t *testing.T) {
+	type testCase struct {
+		name           string
+		input          string
+		expectedOutput string
+	}
+
+	cases := []testCase{
+		{"shortened", "foobar.com", "foobar.com"},
+		{"unshortened", "foobar.com.", "foobar.com"},
+		{"don't remove non-trailing (shortened)", "example.foobar.com", "example.foobar.com"},
+		{"don't remove non-trailing (unshortened)", "example.foobar.com.", "example.foobar.com"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(tt *testing.T) {
+			assertion := assert.New(tt)
+			assertion.Equal(tc.expectedOutput, ShortenDNSName(tc.input))
+		})
+	}
 }
 
 func TestHostedZoneFromConfig(t *testing.T) {

@@ -10,17 +10,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DaemonConfig holds the top-level configuration data for the dynamic53 daemon
+// DaemonConfig holds the top-level configuration data for the dynamic53 daemon.
 type DaemonConfig struct {
 	// SkipUpdate specifies that a daemon should skip sending Route 53 updates
-	// to the AWS API, printing a log message for each configured zone instead
+	// to the AWS API, printing a log message for each configured zone instead.
 	SkipUpdate bool `yaml:"skipUpdate"`
 
-	// Polling contains the configuration for IP address polling
+	// Polling contains the configuration for IP address polling.
 	Polling PollingConfig `yaml:"polling"`
 
 	// Zones is a slice containing the configuration for each Route 53 hosted
-	// zone that should be managed by dynamic53
+	// zone that should be managed by dynamic53.
 	Zones []ZoneConfig `yaml:"zones"`
 }
 
@@ -38,18 +38,18 @@ func (c DaemonConfig) Validate() error {
 	return errors.Join(errs...)
 }
 
-// ZoneConfig holds the configuration data for a single Route 53 hosted zone
+// ZoneConfig holds the configuration data for a single Route 53 hosted zone.
 type ZoneConfig struct {
 	// Name is the name given to the Route53 hosted zone. Either Name or Id is
-	// required. If Id is specified, this field is ignored
+	// required. If Id is specified, this field is ignored.
 	Name string `yaml:"name"`
 
 	// Id is the AWS-assigned ID of the Route53 hosted zone. Either Name or Id
-	// is required. Overrides the Name field if present
+	// is required. Overrides the Name field if present.
 	Id string `yaml:"id"`
 
 	// Records is a slice containing the DNS A records that dynamic53 should
-	// manage in this hosted zone
+	// manage in this hosted zone.
 	Records []string `yaml:"records"`
 }
 
@@ -77,19 +77,20 @@ func (c ZoneConfig) Validate() error {
 }
 
 // PollingConfig holds the configuration date for the dynamic53 daemon's IP
-// address polling behavior
+// address polling behavior.
 type PollingConfig struct {
 	// Interval is the interval at which the daemon should poll for changes to
-	// the host's public IP address
+	// the host's public IP address.
 	Interval time.Duration `yaml:"interval"`
 
 	// MaxJitter is the maximum amount of time the daemon should randomly choose
 	// to wait before polling on a given iteration. Set to zero to disable
-	// jitter (this is bad practice, so don't do it unless you have good reason)
+	// jitter (this is bad practice, so don't do it unless you have good
+	// reason).
 	MaxJitter time.Duration `yaml:"maxJitter"`
 
 	// Url is the resource that dynamic53 should poll to determine the host's
-	// IPv4 address. If empty, dynamic53 defaults to the ipinfo.org API
+	// IPv4 address. If empty, dynamic53 defaults to the ipinfo.org API.
 	Url string `yaml:"url"`
 }
 
@@ -116,7 +117,7 @@ func (c PollingConfig) Validate() error {
 	return nil
 }
 
-// LoadDaemonConfig reads and parses a configuration from the given io.Reader
+// LoadDaemonConfig reads and parses a configuration from the given io.Reader.
 func LoadDaemonConfig(from io.Reader) (*DaemonConfig, error) {
 	var cfg DaemonConfig
 
