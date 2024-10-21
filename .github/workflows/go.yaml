@@ -1,4 +1,4 @@
-name: go-lint
+name: go
 on:
   pull_request:
 
@@ -19,3 +19,13 @@ jobs:
         with:
           version: v1.61
           args: --out-format=github-actions
+  unittest:
+    name: unit-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.1'
+      - name: Run go test
+        run: go test
