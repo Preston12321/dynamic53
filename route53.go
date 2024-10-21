@@ -33,9 +33,9 @@ var MaxRecordsPerZone int32 = 300
 // than the supported limit, MaxRecordsPerZone
 var ErrTooManyRecords error = fmt.Errorf("hosted zones with more than %d resource records are unsupported", MaxRecordsPerZone)
 
-// ZoneManager wraps the functionality of a route53.Client that is specifically
+// zoneManager wraps the functionality of a route53.Client that is specifically
 // necessary to manage a hosted zone
-type ZoneManager interface {
+type zoneManager interface {
 	GetHostedZone(
 		ctx context.Context,
 		params *route53.GetHostedZoneInput,
@@ -74,7 +74,7 @@ func createDefaultBackoff() backoff.BackOff {
 // ZoneUtility provides a high-level set of convenience functions to manage a
 // hosted zone
 type ZoneUtility struct {
-	manager       ZoneManager
+	manager       zoneManager
 	createBackoff func() backoff.BackOff
 }
 
