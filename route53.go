@@ -211,7 +211,9 @@ func (u ZoneUtility) GetChangesForZone(ctx context.Context, zone *types.HostedZo
 			recordsToSend = append(recordsToSend, definedRecord)
 		}
 
-		// Delete this key from the map of desired records
+		// Remote record already has the desired state. Delete this key from the
+		// map of desired records
+		logger.Debug().Msg(fmt.Sprintf("Desired record already exists: name=%s ttl=%d value=%s", stripped, *awsRecord.TTL, *awsRecord.ResourceRecords[0].Value))
 		delete(desiredRecords, stripped)
 	}
 
