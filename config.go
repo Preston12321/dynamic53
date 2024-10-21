@@ -3,7 +3,8 @@ package dynamic53
 import (
 	"errors"
 	"fmt"
-	"os"
+	"io"
+	"net/url"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -61,6 +62,7 @@ func (c ZoneConfig) Validate() error {
 		return fmt.Errorf("invalid zone: must specify at least one record")
 	}
 
+	// TODO: Maybe account for duplicates?
 	if len(c.Records) > int(MaxRecordsPerZone) {
 		return fmt.Errorf("invalid zone: managing more than 300 records in a zone is not supported")
 	}
@@ -85,6 +87,10 @@ type PollingConfig struct {
 	// to wait before polling on a given iteration. Set to zero to disable
 	// jitter (this is bad practice, so don't do it unless you have good reason)
 	MaxJitter time.Duration `yaml:"maxJitter"`
+
+	// Url is the resource that dynamic53 should poll to determine the host's
+	// IPv4 address. If empty, dynamic53 defaults to the ipinfo.org API
+	Url string `yaml:"url"`
 }
 
 func (c PollingConfig) Validate() error {
@@ -100,24 +106,21 @@ func (c PollingConfig) Validate() error {
 		return fmt.Errorf("invalid polling config: maxJitter must be less than polling interval")
 	}
 
+	if c.Url != "" {
+		_, err := url.Parse(c.Url)
+		if err != nil {
+			return fmt.Errorf("invalid polling config: invalid url: %w", err)
+		}
+	}
+
 	return nil
 }
 
-// LoadConfig reads and parses the configuration file at the given path
-func LoadConfig(configPath string) (*DaemonConfig, error) {
-	if configPath == "" {
-		return nil, fmt.Errorf("no file specified")
-	}
-
-	file, err := os.Open(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("cannot open file: %w", err)
-	}
-	defer file.Close()
-
+// LoadDaemonConfig reads and parses a configuration from the given io.Reader
+func LoadDaemonConfig(from io.Reader) (*DaemonConfig, error) {
 	var cfg DaemonConfig
 
-	err = yaml.NewDecoder(file).Decode(&cfg)
+	err := yaml.NewDecoder(from).Decode(&cfg)
 	if err != nil {
 		return nil, fmt.Errorf("cannot parse yaml: %w", err)
 	}

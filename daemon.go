@@ -18,13 +18,15 @@ type Daemon struct {
 	// Config controls the dynamic53 daemon's behavior
 	Config DaemonConfig
 
-	utility ZoneUtility
+	zoneUtility   ZoneUtility
+	addressClient AddressClient
 }
 
 func NewDaemon(config DaemonConfig, route53Client *route53.Client) *Daemon {
 	return &Daemon{
-		Config:  config,
-		utility: ZoneUtility{Manager: route53Client},
+		Config:        config,
+		zoneUtility:   NewZoneUtility(route53Client),
+		addressClient: NewAddressClient(config.Polling.Url),
 	}
 }
 
@@ -72,7 +74,7 @@ func (d *Daemon) doUpdate(ctx context.Context) error {
 		return fmt.Errorf("context cancelled: %w", ctx.Err())
 	}
 
-	ipv4, err := GetPublicIPv4(ctx)
+	ipv4, err := d.addressClient.GetPublicIPv4(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get public IPv4 address: %w", err)
 	}
@@ -109,9 +111,14 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 
 	logger.Debug().Msg("Beginning update pass for hosted zone")
 
-	hostedZone, err := d.utility.HostedZoneFromConfig(logCtx, zone)
+	hostedZone, err := d.zoneUtility.HostedZoneFromConfig(logCtx, zone)
 	if err != nil {
 		logger.Error().Err(err).Send()
+		return
+	}
+
+	if *hostedZone.ResourceRecordSetCount > int64(MaxRecordsPerZone) {
+		logger.Error().Err(ErrTooManyRecords).Send()
 		return
 	}
 
@@ -128,7 +135,7 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 	logger.Debug().Msg("Retrieved info about hosted zone")
 
 	ttl := int64(d.Config.Polling.Interval.Seconds())
-	batch, err := d.utility.GetChangesForZone(logCtx, hostedZone, zone.Records, ttl, ipv4)
+	batch, err := d.zoneUtility.GetChangesForZone(logCtx, hostedZone, zone.Records, ttl, ipv4)
 	if err != nil {
 		logger.Error().Err(err).Send()
 		return
@@ -146,5 +153,8 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 		return
 	}
 
-	d.utility.ApplyChangeBatch(logCtx, hostedZone, batch)
+	err = d.zoneUtility.ApplyChangeBatch(logCtx, hostedZone, batch)
+	if err != nil {
+		logger.Error().Err(err).Send()
+	}
 }

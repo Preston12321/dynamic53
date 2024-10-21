@@ -7,25 +7,45 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"text/template"
 
 	_ "embed"
 )
 
-const ADDRESS_API_URL = "https://ipinfo.io/ip"
+const DefaultAddressApiUrl string = "https://ipinfo.io/ip"
 
 //go:embed templates/iam-policy.tmpl
 var IAM_POLICY_TEMPLATE string
 
+// doer wraps *http.Client
+type doer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
+// AddressClient retrieves information about the host's IP address
+type AddressClient struct {
+	Url string
+
+	httpClient doer
+}
+
+func NewAddressClient(url string) AddressClient {
+	return AddressClient{
+		Url:        url,
+		httpClient: &http.Client{},
+	}
+}
+
 // GetPublicIPv4 attempts to determine the current public IPv4 address of the
 // host by making a request to an external third-party API
-func GetPublicIPv4(ctx context.Context) (net.IP, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, ADDRESS_API_URL, nil)
+func (c AddressClient) GetPublicIPv4(ctx context.Context) (net.IP, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create GET request: %w", err)
 	}
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("GET request failed: %w", err)
 	}
@@ -67,6 +87,11 @@ func listSeparator(length int, index int, separator string) string {
 // IAM policy granting the necessary permissions for a dynamic53 client to
 // manage the zones and records specified in the given configuration
 func GenerateIAMPolicy(cfg DaemonConfig) (string, error) {
+	err := cfg.Validate()
+	if err != nil {
+		return "", err
+	}
+
 	funcs := template.FuncMap{"listSeparator": listSeparator}
 	tmpl, err := template.New("iam-policy").Funcs(funcs).Parse(IAM_POLICY_TEMPLATE)
 	if err != nil {
@@ -80,4 +105,14 @@ func GenerateIAMPolicy(cfg DaemonConfig) (string, error) {
 	}
 
 	return buffer.String(), nil
+}
+
+// ShortenZoneId returns the given hosted zone ID without its optional prefix
+func ShortenZoneId(id string) string {
+	return strings.TrimPrefix(id, "/hostedzone/")
+}
+
+// ShortenDNSName returns the given DNS name without a trailing dot
+func ShortenDNSName(name string) string {
+	return strings.TrimSuffix(name, ".")
 }
