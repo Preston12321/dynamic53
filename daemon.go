@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -129,8 +128,8 @@ func (d *Daemon) updateRecords(ctx context.Context, zone ZoneConfig, ipv4 net.IP
 
 	// The API returns these in their fully-qualified form, but for the sake of
 	// readability in the logs, use the simplified forms
-	id := strings.TrimPrefix(*hostedZone.Id, "/hostedzone/")
-	name := strings.TrimSuffix(*hostedZone.Name, ".")
+	id := ShortenZoneId(*hostedZone.Id)
+	name := ShortenDNSName(*hostedZone.Name)
 
 	// Now that we've used the config-supplied ID/name to fetch info about the
 	// zone, use that data to fill in whatever field might've been missing
