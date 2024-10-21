@@ -65,14 +65,16 @@ func TestGetPublicIPv4(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(tt *testing.T) {
 			assertion := assert.New(tt)
-			ctx := context.WithValue(context.Background(), "foo", "bar")
+
+			type key string
+			ctx := context.WithValue(context.Background(), key("foo"), "bar")
 
 			client := AddressClient{
 				Url: "http://foobar:123/test",
 				httpClient: mockHttpClient{
 					mockDo: func(request *http.Request) (*http.Response, error) {
 						assertion.Nil(request.Context().Err(), "context should not be canceled")
-						assertion.Equal("bar", request.Context().Value("foo"), "context should be the same as passed in")
+						assertion.Equal("bar", request.Context().Value(key("foo")), "context should be the same as passed in")
 						assertion.Equal("GET", request.Method)
 						assertion.Equal("http://foobar:123/test", request.URL.String())
 
