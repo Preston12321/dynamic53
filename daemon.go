@@ -23,10 +23,15 @@ type Daemon struct {
 }
 
 func NewDaemon(config DaemonConfig, route53Client *route53.Client) *Daemon {
+	pollingUrl := config.Polling.Url
+	if pollingUrl == "" {
+		pollingUrl = DefaultAddressApiUrl
+	}
+
 	return &Daemon{
 		Config:        config,
 		zoneUtility:   NewZoneUtility(route53Client),
-		addressClient: NewAddressClient(config.Polling.Url),
+		addressClient: NewAddressClient(pollingUrl),
 	}
 }
 
